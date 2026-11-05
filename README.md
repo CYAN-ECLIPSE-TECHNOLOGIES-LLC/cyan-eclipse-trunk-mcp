@@ -52,7 +52,7 @@ State: Trunk-local data (simulated sends, recording policies) in `data/state.jso
 ## Roadmap (per spec)
 
 - **V0** — this fixture adapter + Eclipse Voice Core.
-- **V1** — wrap the vendor's executing MCP surface behind the governor, on the owner's Twilio account; one registered dogfood number (the CETech business line); number provisioning (T2) and release (T3) classified and receipted.
+- **V1** — wrap the vendor's executing MCP surface behind the governor, on the owner's Twilio account; one registered first-party number (the CETech business line); number provisioning (T2) and release (T3) classified and receipted.
 - **V2** — sibling wraps (Uplink/Telnyx, Wavelength/Bandwidth, Dialtone/Vonage) on the same core; nothing about the consent law changes.
 
 ## License / attribution
