@@ -341,82 +341,156 @@ def t_receipt_list(args):
 TOOLS = {
     "logs_read": (
         t_logs_read,
-        "T0. Twilio-shaped call/message logs (fixture file, or "
-        "the local twilio_stub over HTTP when "
-        "ECLIPSE_TRUNK_STUB_URL is set). Numbers are masked "
-        "beyond last-4 in every output.",
-        {"kind": {"type": "string"}, "limit": {"type": "integer"}},
+        "Read Twilio-shaped call and message logs with every phone "
+        "number masked beyond its last four digits. Use to review "
+        "past carrier activity; use receipt_list for the family's "
+        "governance ledger (sends, gates, violations) rather than "
+        "carrier logs. Read-only. Data comes from the local fixture "
+        "log file, or from a local twilio stub over HTTP when the "
+        "ECLIPSE_TRUNK_STUB_URL environment variable is set — never "
+        "from a live Twilio account in this build. Entries are "
+        "sorted by date_created ascending and only the most recent "
+        "limit entries are returned (default 50); each entry "
+        "carries sid, kind, direction, status, masked from/to, the "
+        "registry number_ids those numbers resolve to when "
+        "enrolled, duration, price, and its source. Returns {logs, "
+        "count, pii} where count is the number of entries returned.",
+        {"kind": {"type": "string", "description": "calls, messages, or all (default all)."},
+         "limit": {"type": "integer", "description": "Return at most the most recent N entries after sorting; defaults to 50."}},
         []),
     "send_sms_sim": (
         t_send_sms_sim,
-        "T2 SIMULATED SMS send. Gated through Eclipse Voice "
-        "Core: live consent check, then mandate, then number "
-        "registration state. A refusal names its gate; an "
-        "unconsented attempt writes a violation record in the "
-        "family ledger. On ALLOW, a simulated send record is "
-        "written (body hashed, never stored) and the family "
-        "receipt carries the consent_record_id. Nothing reaches "
-        "a carrier in V0.",
-        {"from_ref": {"type": "string"},
-         "subject": {"type": "string"},
-         "to_number": {"type": "string"},
-         "scope": {"type": "string"}, "body": {"type": "string"},
-         "mandate": {"type": "object"},
-         "estimated_cost": {"type": "number"},
-         "at_time": {"type": "string"},
-         "confirm_token": {"type": "string"}},
+        "Simulate sending one SMS through the full governance gate "
+        "— nothing reaches any carrier in this build. Use to prove "
+        "a send would be allowed and to produce its governed "
+        "record; use send_evaluate on Eclipse Voice Core for a "
+        "verdict without a send record. The gate runs in order: "
+        "Voice Core consent check for (subject, sms, scope), the "
+        "mandate (expiry, platform, destination allowlist, cap, "
+        "approval threshold), and the sending number's registration "
+        "sendability, all against the shared family state. A DENY "
+        "comes back as an error naming the gate — "
+        "SEND_REFUSED[<stage>:<reason>] — and an unconsented "
+        "attempt writes a violation record in the family ledger. "
+        "If the cost exceeds the mandate's approval threshold the "
+        "call returns {decision: APPROVAL_REQUIRED, send_ref, "
+        "confirm_token_form} instead; re-call with confirm_token "
+        "set to that form to complete. On ALLOW it writes a "
+        "simulated send record to Trunk-local state (the body is "
+        "SHA-256 hashed and counted, never stored) and a family "
+        "receipt carrying the consent_record_id. body is required. "
+        "estimated_cost defaults to 0.01. Returns {send, "
+        "receipt_seq, consent_record_id} on success.",
+        {"from_ref": {"type": "string", "description": "Sending number: an enrolled Voice Core number_id or E.164."},
+         "subject": {"type": "string", "description": "Recipient identifier exactly as consent records key it; also checked against the mandate's destination allowlist."},
+         "to_number": {"type": "string", "description": "Recipient's actual number; stored masked beyond last-4 in the send record."},
+         "scope": {"type": "string", "description": "transactional, conversational, or marketing."},
+         "body": {"type": "string", "description": "Message text. Required; only its SHA-256 hash and character count are stored."},
+         "mandate": {"type": "object", "description": "Wallet-shaped mandate object (mandate_id, expires_at, platforms, destinations, cap, approval_threshold); evaluated by Voice Core. Omitting it is a mandate-stage refusal."},
+         "estimated_cost": {"type": "number", "description": "Estimated cost checked against the mandate cap and threshold; defaults to 0.01."},
+         "at_time": {"type": "string", "description": "ISO 8601 evaluation time for consent window/DNC and mandate expiry; defaults to now."},
+         "confirm_token": {"type": "string", "description": "The exact token returned as confirm_token_form by an APPROVAL_REQUIRED response ('confirm-send-<send_ref>')."}},
         ["from_ref", "subject", "scope", "body"]),
     "place_call_sim": (
         t_place_call_sim,
-        "T2 SIMULATED human call. human_speaker is REQUIRED "
-        "(spec 8.1: a named human speaks on a human call). Same "
-        "Voice Core gate as send_sms_sim; the simulated record "
-        "and its receipt carry the consent_record_id. No AI "
-        "voice exists in this adapter; AI-voice outbound is T3 "
-        "and belongs to Eclipse Ward (V3).",
-        {"from_ref": {"type": "string"},
-         "subject": {"type": "string"},
-         "to_number": {"type": "string"},
-         "scope": {"type": "string"},
-         "human_speaker": {"type": "string"},
-         "mandate": {"type": "object"},
-         "estimated_cost": {"type": "number"},
-         "at_time": {"type": "string"},
-         "confirm_token": {"type": "string"}},
+        "Simulate placing one human voice call through the same "
+        "governance gate as send_sms_sim — nothing is dialed in "
+        "this build. Use to prove a call would be allowed and to "
+        "produce its governed record. human_speaker is REQUIRED: "
+        "a human call means a named human will speak on it, and "
+        "the call is refused with HUMAN_SPEAKER_REQUIRED without "
+        "one. There is no AI voice in this adapter at all. Gate "
+        "order and refusal shape match send_sms_sim: consent for "
+        "(subject, voice, scope) first, then mandate, then number "
+        "sendability; a DENY is an error naming "
+        "SEND_REFUSED[<stage>:<reason>], an over-threshold cost "
+        "returns APPROVAL_REQUIRED with a confirm_token_form to "
+        "re-call with. On ALLOW it writes a simulated call record "
+        "to Trunk-local state and a family receipt carrying the "
+        "consent_record_id. estimated_cost defaults to 0.01. "
+        "Returns {send, receipt_seq, consent_record_id} on "
+        "success (the record's channel is voice).",
+        {"from_ref": {"type": "string", "description": "Calling number: an enrolled Voice Core number_id or E.164."},
+         "subject": {"type": "string", "description": "Recipient identifier exactly as consent records key it."},
+         "to_number": {"type": "string", "description": "Recipient's actual number; stored masked beyond last-4 in the call record."},
+         "scope": {"type": "string", "description": "transactional, conversational, or marketing."},
+         "human_speaker": {"type": "string", "description": "Name of the human who will speak on the call. Required — no named human, no call."},
+         "mandate": {"type": "object", "description": "Wallet-shaped mandate object (mandate_id, expires_at, platforms, destinations, cap, approval_threshold), evaluated by Voice Core."},
+         "estimated_cost": {"type": "number", "description": "Estimated cost checked against the mandate cap and threshold; defaults to 0.01."},
+         "at_time": {"type": "string", "description": "ISO 8601 evaluation time; defaults to now."},
+         "confirm_token": {"type": "string", "description": "The exact token returned as confirm_token_form by an APPROVAL_REQUIRED response ('confirm-send-<send_ref>')."}},
         ["from_ref", "subject", "scope", "human_speaker"]),
     "number_search": (
         t_number_search,
-        "T0. Search fixture carrier inventory (Twilio-shaped). "
-        "Search only — provisioning is a separate T2 surface "
-        "at V1.",
-        {"area_code": {"type": "string"}}, []),
+        "Search the fixture carrier inventory of numbers available "
+        "to provision (Twilio-shaped records). Use to see what "
+        "could be provisioned in an area code; searching "
+        "provisions nothing and enrolls nothing — provisioning is "
+        "not a tool in this build, and a found number still needs "
+        "Voice Core enrollment (number_enroll there) before it can "
+        "send. Read-only. area_code optionally filters to US "
+        "numbers starting +1<area_code>; omit it to list the whole "
+        "fixture inventory. Returns {available, count, note}.",
+        {"area_code": {"type": "string", "description": "Three-digit US area code to filter by, e.g. '415'; omit for all fixture numbers."}}, []),
     "registration_status": (
         t_registration_status,
-        "T0. A registry number's registration state (10DLC, "
-        "toll-free verification, STIR/SHAKEN as carrier-"
-        "reported, branded ID), its sendability matrix, and "
-        "its recording policy (spec 5.6).",
-        {"number_ref": {"type": "string"}}, ["number_ref"]),
+        "Read one enrolled number's carrier registration state — "
+        "A2P 10DLC brand/campaign state, toll-free verification, "
+        "STIR/SHAKEN, branded ID — together with its per-channel/"
+        "scope sendability matrix and its current recording "
+        "policy. Use to check whether a number can send and under "
+        "what registrations; use recording_policy_get for the "
+        "policy alone and number_health_report on Voice Core for "
+        "spam-label diagnostics. Read-only; the registration data "
+        "is the registry record as enrolled, not a live carrier "
+        "query. An unenrolled number_ref is an error "
+        "(NUMBER_NOT_ENROLLED). Returns {number, recording_policy} "
+        "(recording_policy may be null when none was set).",
+        {"number_ref": {"type": "string", "description": "An enrolled number_id or E.164 string."}}, ["number_ref"]),
     "recording_policy_get": (
         t_recording_policy_get,
-        "T0. The recording policy in force for a number.",
-        {"number_ref": {"type": "string"}}, ["number_ref"]),
+        "Read the recording policy in force for one enrolled "
+        "number: whether recording is enabled and whether it is "
+        "announced. Use before placing calls on a number or before "
+        "changing the policy with recording_policy_set. Read-only. "
+        "When no policy was ever set, the default is returned: "
+        "recording disabled, announcement on. An unenrolled "
+        "number_ref is an error (NUMBER_NOT_ENROLLED). Returns "
+        "{number_id, policy, tier}.",
+        {"number_ref": {"type": "string", "description": "An enrolled number_id or E.164 string."}}, ["number_ref"]),
     "recording_policy_set": (
         t_recording_policy_set,
-        "T3. Change a number's recording policy. Requires the "
-        "human-confirm token for that number on EVERY call "
-        "(confirm-recording-policy-<number_id>). Receipted in "
-        "the family ledger.",
-        {"number_ref": {"type": "string"},
-         "recording_enabled": {"type": "boolean"},
-         "announce": {"type": "boolean"},
-         "confirm_token": {"type": "string"}},
+        "Change one enrolled number's recording policy "
+        "(recording_enabled and/or announce). Use only as a "
+        "deliberate human-confirmed act: this is the adapter's "
+        "highest tier, and EVERY call must carry confirm_token "
+        "exactly equal to 'confirm-recording-policy-<number_id>' "
+        "for the resolved number or it is refused with "
+        "CONFIRMATION_REQUIRED — there is no remembered approval. "
+        "Mutating and persistent in Trunk-local state, and the "
+        "change is receipted in the Voice Core family ledger. Only "
+        "the fields supplied are changed; omitted fields keep "
+        "their current values. An unenrolled number_ref is an "
+        "error. Returns {number_id, policy, receipt_seq}.",
+        {"number_ref": {"type": "string", "description": "An enrolled number_id or E.164 string."},
+         "recording_enabled": {"type": "boolean", "description": "Whether calls on this number are recorded."},
+         "announce": {"type": "boolean", "description": "Whether recording is announced to the parties."},
+         "confirm_token": {"type": "string", "description": "Must exactly equal 'confirm-recording-policy-<number_id>' using the number's registry id. Required on every call."}},
         ["number_ref", "confirm_token"]),
     "receipt_list": (
         t_receipt_list,
-        "T0. The family ledger (held by Eclipse Voice Core): "
-        "append-only, hash-chained; verifies the chain.",
-        {"limit": {"type": "integer"}}, []),
+        "List the Eclipse Voice Core family receipt ledger — the "
+        "append-only, hash-chained record Trunk's governed actions "
+        "write into (simulated sends, gate evaluations, violation "
+        "records, recording-policy changes, plus all core registry "
+        "events) — and report whether the chain still verifies. "
+        "Use to audit governed activity across the family; use "
+        "logs_read for carrier-shaped call/message logs instead. "
+        "Read-only. The ledger lives in the shared Voice Core "
+        "state, not in Trunk-local state. limit returns only the "
+        "most recent N receipts while count reports the full "
+        "length. Returns {receipts, count, chain_valid}.",
+        {"limit": {"type": "integer", "description": "Return only the most recent N receipts; omit for the whole ledger."}}, []),
 }
 
 # Capability denylist, stated in code (spec 10/12): no
